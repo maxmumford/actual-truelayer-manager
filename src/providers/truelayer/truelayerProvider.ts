@@ -144,22 +144,31 @@ export class TrueLayerProvider implements BankingProvider {
       `/data/v1/accounts/${input.providerAccountId}/transactions?${query}`,
       input.tokens.accessToken,
     );
+    // TrueLayer uses OPPOSITE sign conventions on the two endpoints. For
+    // accounts, a DEBIT is already negative. For cards, the docs state: "A
+    // positive transaction amount reflects the flow of funds out of a card,
+    // such as a purchase. A negative amount indicates the flow of funds into
+    // the card, for example a refund." Actual expects the account convention
+    // (spending negative), so card amounts must be negated.
+    let fromCardEndpoint = false;
     if (results.length === 0) {
       results = await this.getData(
         `/data/v1/cards/${input.providerAccountId}/transactions?${query}`,
         input.tokens.accessToken,
       );
+      fromCardEndpoint = results.length > 0;
     }
 
     return results.map((t) => {
       const tx = t as Record<string, unknown>;
       const amount = Number(tx.amount ?? 0);
+      const signed = fromCardEndpoint ? -amount : amount;
       return {
         providerTransactionId: String(tx.transaction_id),
         providerAccountId: input.providerAccountId,
         bookedDate: String(tx.timestamp ?? "").slice(0, 10),
         description: String(tx.description ?? ""),
-        amountMinor: Math.round(amount * 100),
+        amountMinor: Math.round(signed * 100),
         currency: String(tx.currency ?? "GBP"),
         merchantName:
           typeof tx.merchant_name === "string" ? tx.merchant_name : undefined,

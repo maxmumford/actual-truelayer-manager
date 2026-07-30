@@ -105,11 +105,23 @@ function startMockTrueLayer(): Promise<{
       if (url.pathname === "/data/v1/cards/card-1/transactions") {
         send(200, {
           results: [
+            // Card amounts use the OPPOSITE sign convention to accounts:
+            // positive = funds out of the card (a purchase), negative = funds
+            // in (a refund). Mirrors the example in TrueLayer's card data docs.
             {
               transaction_id: "ctx-1",
               timestamp: "2026-07-11T12:00:00Z",
-              description: "Amazon",
-              amount: -40.0,
+              description: "Sainsburys",
+              amount: 24.25,
+              transaction_type: "DEBIT",
+              currency: "GBP",
+            },
+            {
+              transaction_id: "ctx-2",
+              timestamp: "2026-07-12T12:00:00Z",
+              description: "Refund",
+              amount: -15.0,
+              transaction_type: "CREDIT",
               currency: "GBP",
             },
           ],
@@ -205,8 +217,32 @@ describe("TrueLayerProvider (live network path against a mock)", () => {
       from: "2026-07-01",
       to: "2026-07-17",
     });
-    expect(txns).toHaveLength(1);
+    expect(txns).toHaveLength(2);
     expect(txns[0]?.providerTransactionId).toBe("ctx-1");
+  });
+
+  it("negates card amounts so spending is negative in Actual", async () => {
+    const txns = await provider.listTransactions({
+      tokens: { accessToken: "access-123", refreshToken: "r" },
+      providerAccountId: "card-1",
+      from: "2026-07-01",
+      to: "2026-07-17",
+    });
+    // A £24.25 purchase arrives from TrueLayer as +24.25 and must become
+    // -2425, or every card spend inflates the budget instead of reducing it.
+    expect(txns[0]?.amountMinor).toBe(-2425);
+    // A refund arrives as -15.00 and must become +1500.
+    expect(txns[1]?.amountMinor).toBe(1500);
+  });
+
+  it("leaves account amounts untouched (they are already signed)", async () => {
+    const txns = await provider.listTransactions({
+      tokens: { accessToken: "access-123", refreshToken: "r" },
+      providerAccountId: "acc-1",
+      from: "2026-07-01",
+      to: "2026-07-17",
+    });
+    expect(txns[0]?.amountMinor).toBe(-1250);
   });
 
   it("throws AuthorizationError on a 401 response", async () => {
