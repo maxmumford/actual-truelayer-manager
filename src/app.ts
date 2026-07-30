@@ -2,7 +2,10 @@ import { timingSafeEqual } from "node:crypto";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, {
+  type FastifyInstance,
+  type FastifyRequest,
+} from "fastify";
 import formbody from "@fastify/formbody";
 import { loadConfig, type AppConfig } from "./config/env.js";
 import { buildServices, type Services } from "./services.js";
@@ -48,6 +51,23 @@ export async function buildApp(
               "*.password",
               "*.encryption_password",
             ],
+          },
+          serializers: {
+            // Fastify's default request serializer logs the full URL including
+            // its query string. GET /oauth/truelayer/callback?code=…&state=…
+            // would therefore write a live OAuth authorization code to stdout
+            // in cleartext on every request-logged callback. Keep the path for
+            // diagnostics and drop the query entirely.
+            req(request: FastifyRequest) {
+              const [path] = request.url.split("?");
+              return {
+                method: request.method,
+                url: path,
+                host: request.host,
+                remoteAddress: request.ip,
+                remotePort: request.socket.remotePort,
+              };
+            },
           },
         }
       : false,
