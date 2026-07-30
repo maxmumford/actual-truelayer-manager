@@ -55,6 +55,35 @@ describe("HTTP app", () => {
     expect(response.statusCode).toBe(302);
     expect(response.headers.location).toBe("/setup");
   });
+
+  it("POST /oauth/exchange rejects a redirect URL with an unknown state", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/oauth/exchange",
+      payload: {
+        connection_id: "attacker-supplied-connection-id",
+        redirect_url:
+          "https://console.truelayer.com/redirect-page?code=some-code&state=never-issued",
+      },
+    });
+    expect(response.statusCode).toBe(302);
+    expect(response.headers.location).toContain("/setup");
+    expect(response.headers.location).toContain("Unknown+OAuth+state");
+  });
+
+  it("POST /oauth/exchange rejects a redirect URL with no state at all", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/oauth/exchange",
+      payload: {
+        connection_id: "attacker-supplied-connection-id",
+        redirect_url: "https://console.truelayer.com/redirect-page?code=abc",
+      },
+    });
+    expect(response.statusCode).toBe(302);
+    expect(response.headers.location).toContain("/setup");
+    expect(response.headers.location).toContain("state");
+  });
 });
 
 describe("HTTP Basic Auth", () => {

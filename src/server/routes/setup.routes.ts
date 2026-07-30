@@ -218,11 +218,26 @@ export async function setupRoutes(
   });
 
   app.post("/oauth/exchange", async (request, reply) => {
-    const connectionId = bodyStr(request.body, "connection_id");
     const redirectUrl = bodyStr(request.body, "redirect_url");
     try {
       const provider = services.getProvider();
       const parsed = parseRedirectUrl(redirectUrl);
+      // Trust the `state` echoed back by the provider, not the connection_id in
+      // the form body: the state is what we generated and stored in
+      // /connections/add, so it is the only value tying this authorization code
+      // to the connection the user actually started. This mirrors what
+      // /oauth/truelayer/callback already does.
+      if (!parsed.state) {
+        throw new Error(
+          "No 'state' parameter found in the pasted redirect URL.",
+        );
+      }
+      const connectionId = services.settings.get(
+        `oauth.state.${parsed.state}`,
+      );
+      if (!connectionId) {
+        throw new Error("Unknown OAuth state.");
+      }
       const tokens = await provider.exchangeAuthCode({
         code: parsed.code,
         redirectUri: "https://console.truelayer.com/redirect-page",
