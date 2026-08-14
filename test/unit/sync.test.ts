@@ -9,7 +9,10 @@ import { SyncRunsRepo } from "../../src/db/repositories/syncRuns.repo.js";
 import { DemoActualClient } from "../../src/actual/demoActualClient.js";
 import { DemoProvider } from "../../src/providers/demo/demoProvider.js";
 import { SyncRunner } from "../../src/sync/syncRunner.js";
-import { transactionKey } from "../../src/sync/normalise.js";
+import {
+  normaliseTransaction,
+  transactionKey,
+} from "../../src/sync/normalise.js";
 import { AuthorizationError } from "../../src/providers/truelayer/truelayerProvider.js";
 import type {
   BankAccount,
@@ -72,6 +75,104 @@ describe("transactionKey", () => {
     const b = transactionKey("demo", tx);
     expect(a.fallback).toBe(true);
     expect(a.id).toBe(b.id);
+  });
+});
+
+/**
+ * A faster payment as TrueLayer really returns it (Monzo, 11 Aug 2026): no
+ * `merchant_name`, a `description` holding only the reference the payer typed,
+ * and the beneficiary's name tucked away in `meta`.
+ */
+function fasterPayment(meta: Record<string, unknown>): BankTransaction {
+  return {
+    providerTransactionId: "11dd07ca622bc24035bee9c146a39d27",
+    providerAccountId: "acc",
+    bookedDate: "2026-08-11",
+    description: "237 OSR, BN411XR",
+    amountMinor: -3500,
+    currency: "GBP",
+    raw: {
+      description: "237 OSR, BN411XR",
+      transaction_type: "DEBIT",
+      transaction_category: "TRANSFER",
+      amount: -35,
+      transaction_id: "11dd07ca622bc24035bee9c146a39d27",
+      meta,
+    },
+  };
+}
+
+describe("normaliseTransaction payee", () => {
+  it("uses the counterparty name when there is no merchant name", () => {
+    const tx = fasterPayment({
+      provider_category: "payport_faster_payments",
+      counter_party_preferred_name: "Albion Commercial Cleaning Ltd",
+    });
+    expect(normaliseTransaction("truelayer", tx, "actual-1").payeeName).toBe(
+      "Albion Commercial Cleaning Ltd",
+    );
+  });
+
+  it("prefers counter_party_preferred_name over counter_party_name", () => {
+    const tx = fasterPayment({
+      counter_party_preferred_name: "Preferred Name Ltd",
+      counter_party_name: "LEGAL NAME LTD",
+    });
+    expect(normaliseTransaction("truelayer", tx, "actual-1").payeeName).toBe(
+      "Preferred Name Ltd",
+    );
+  });
+
+  it("falls back to counter_party_name when there is no preferred name", () => {
+    const tx = fasterPayment({ counter_party_name: "LEGAL NAME LTD" });
+    expect(normaliseTransaction("truelayer", tx, "actual-1").payeeName).toBe(
+      "LEGAL NAME LTD",
+    );
+  });
+
+  it("still lets the merchant name win when present", () => {
+    const tx = {
+      ...fasterPayment({
+        counter_party_preferred_name: "Albion Commercial Cleaning Ltd",
+      }),
+      merchantName: "Tesco",
+    };
+    expect(normaliseTransaction("truelayer", tx, "actual-1").payeeName).toBe(
+      "Tesco",
+    );
+  });
+
+  it("falls back to the description when neither name is available", () => {
+    const tx = fasterPayment({ provider_category: "payport_faster_payments" });
+    expect(normaliseTransaction("truelayer", tx, "actual-1").payeeName).toBe(
+      "237 OSR, BN411XR",
+    );
+  });
+
+  it("ignores a blank or whitespace-only counterparty name", () => {
+    const tx = fasterPayment({
+      counter_party_preferred_name: "   ",
+      counter_party_name: "",
+    });
+    expect(normaliseTransaction("truelayer", tx, "actual-1").payeeName).toBe(
+      "237 OSR, BN411XR",
+    );
+  });
+
+  it("trims a padded counterparty name", () => {
+    const tx = fasterPayment({
+      counter_party_preferred_name: "  Albion Commercial Cleaning Ltd  ",
+    });
+    expect(normaliseTransaction("truelayer", tx, "actual-1").payeeName).toBe(
+      "Albion Commercial Cleaning Ltd",
+    );
+  });
+
+  it("falls back to the description when there is no raw payload at all", () => {
+    const tx = { ...fasterPayment({}), raw: undefined };
+    expect(normaliseTransaction("truelayer", tx, "actual-1").payeeName).toBe(
+      "237 OSR, BN411XR",
+    );
   });
 });
 

@@ -29,6 +29,34 @@ export function transactionKey(
   return { id: `fallback-${hash}`, fallback: true };
 }
 
+/**
+ * Pulls the counterparty (beneficiary) name out of a provider's raw payload.
+ *
+ * TrueLayer only sends `merchant_name` for card-style spending. For a faster
+ * payment (bank transfer) it is absent, and `description` is whatever reference
+ * the *user* typed when sending the money — e.g. Monzo reports "237 OSR,
+ * BN411XR" for a payment to "Albion Commercial Cleaning Ltd". The beneficiary's
+ * real name sits unused in `meta.counter_party_preferred_name` (falling back to
+ * `meta.counter_party_name`), so we prefer that over the reference.
+ *
+ * `raw` is typed as `unknown` because the provider interface is deliberately
+ * provider-agnostic, so every step is guarded rather than cast: only a
+ * non-empty string counts, and it is trimmed before use.
+ */
+function counterPartyName(raw: unknown): string | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const meta = (raw as Record<string, unknown>).meta;
+  if (typeof meta !== "object" || meta === null) return undefined;
+  const fields = meta as Record<string, unknown>;
+  for (const key of ["counter_party_preferred_name", "counter_party_name"]) {
+    const value = fields[key];
+    if (typeof value === "string" && value.trim() !== "") {
+      return value.trim();
+    }
+  }
+  return undefined;
+}
+
 /** Normalises a provider transaction into Actual's import shape. */
 export function normaliseTransaction(
   provider: string,
@@ -40,7 +68,10 @@ export function normaliseTransaction(
     accountId: actualAccountId,
     date: tx.bookedDate,
     amountMinor: tx.amountMinor,
-    payeeName: tx.merchantName ?? tx.description,
+    // Merchant name still wins whenever the provider gives one; the
+    // counterparty only fills the gap left by a transfer, where `description`
+    // is the payment reference rather than who was paid.
+    payeeName: tx.merchantName ?? counterPartyName(tx.raw) ?? tx.description,
     importedId: key.id,
     notes: key.fallback ? "imported (fallback id)" : undefined,
     fallback: key.fallback,
