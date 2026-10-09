@@ -23,7 +23,7 @@
     "fastify": "^5.2.1"
   },
   "optionalDependencies": {
-    "@actual-app/api": "^26.7.0"
+    "@actual-app/api": "26.10.0"
   },
   "overrides": {
     "adm-zip": "^0.6.0"
