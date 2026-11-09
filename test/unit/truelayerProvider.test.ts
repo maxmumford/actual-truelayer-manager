@@ -38,6 +38,16 @@ function startMockTrueLayer(): Promise<{
         res.end(JSON.stringify(payload));
       };
 
+      if (
+        url.pathname === "/connect/token" &&
+        body.includes("refresh_token=cancelled")
+      ) {
+        send(400, {
+          error: "invalid_grant",
+          error_description: "Refresh token has been revoked",
+        });
+        return;
+      }
       if (url.pathname === "/connect/token") {
         send(200, {
           access_token: "access-123",
@@ -183,6 +193,14 @@ describe("TrueLayerProvider (live network path against a mock)", () => {
     expect(tokens.accessToken).toBe("access-123");
     expect(tokens.refreshToken).toBe("refresh-456");
     expect(tokens.expiresAt).toBeDefined();
+  });
+
+  it("names TrueLayer's reason when a token request is refused", async () => {
+    await expect(
+      provider.refreshToken({ refreshToken: "cancelled" }),
+    ).rejects.toThrow(
+      "TrueLayer token request failed with status 400: invalid_grant — Refresh token has been revoked",
+    );
   });
 
   it("lists accounts + cards with balances", async () => {

@@ -25,7 +25,10 @@ export function connectionsPage(vm: ConnectionsViewModel): string {
               <h2>${escapeHtml(c.display_name)} <span class="pill ${c.status}">${c.status}</span></h2>
               <p class="muted">Provider: ${escapeHtml(c.provider)} · Type: ${escapeHtml(c.connection_type)}</p>
               <table><thead><tr><th>Account</th><th>Type</th><th>Currency</th></tr></thead><tbody>${accounts || `<tr><td colspan="3" class="muted">No accounts discovered.</td></tr>`}</tbody></table>
-              <form method="post" action="/connections/${encodeURIComponent(c.id)}/reconnect"><button class="secondary" type="submit">Reconnect / refresh</button></form>
+              <div class="row">
+                <form method="post" action="/connections/${encodeURIComponent(c.id)}/reauthorise"><button${c.status === "reauth_required" ? "" : ` class="secondary"`} type="submit">Re-authorise with bank</button></form>
+                <form method="post" action="/connections/${encodeURIComponent(c.id)}/reconnect"><button class="secondary" type="submit">Retry token refresh</button></form>
+              </div>
             </div>`;
           })
           .join("");

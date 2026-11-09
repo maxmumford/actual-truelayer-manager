@@ -193,7 +193,7 @@ export class TrueLayerProvider implements BankingProvider {
     });
     if (!response.ok) {
       throw new Error(
-        `TrueLayer token request failed with status ${response.status}`,
+        `TrueLayer token request failed with status ${response.status}${await tokenErrorDetail(response)}`,
       );
     }
     const data = (await response.json()) as TokenResponse;
@@ -256,5 +256,26 @@ export class AuthorizationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "AuthorizationError";
+  }
+}
+
+/**
+ * TrueLayer's OAuth error fields (`invalid_grant`, `invalid_client`, …). These
+ * say WHY a token request failed — a cancelled refresh token needs a fresh bank
+ * login, a bad client secret does not — and carry no secrets, unlike the
+ * request body. Anything else in the response is deliberately dropped.
+ */
+async function tokenErrorDetail(response: Response): Promise<string> {
+  try {
+    const body = (await response.json()) as {
+      error?: unknown;
+      error_description?: unknown;
+    };
+    const parts = [body.error, body.error_description].filter(
+      (v): v is string => typeof v === "string" && v.length > 0,
+    );
+    return parts.length > 0 ? `: ${parts.join(" — ")}` : "";
+  } catch {
+    return "";
   }
 }

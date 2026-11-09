@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { BankingProvider, TokenSet } from "../providers/bankingProvider.js";
 import type { ConnectionType } from "../db/types.js";
+import { connectPage } from "./views/connect.js";
 import type { Services } from "../services.js";
 
 function inferConnectionType(
@@ -76,4 +77,60 @@ export async function finaliseConnection(
     `Connection ${connectionId} activated with ${accounts.length} accounts`,
   );
   return accounts.length;
+}
+
+/**
+ * Starts a bank login for an existing connection row. Used both for a brand-new
+ * connection and to re-authorise one whose refresh token has been refused:
+ * binding the OAuth `state` to the SAME connection id is what keeps that
+ * connection's account mappings, which a fresh "Add connection" would not.
+ *
+ * Returns the page to render, or — for the demo provider, which has no bank to
+ * visit — finalises immediately and returns the number of accounts found.
+ */
+export async function beginAuthorisation(
+  services: Services,
+  provider: BankingProvider,
+  connectionId: string,
+  connectionType: "bank_account" | "credit_card",
+): Promise<{ page: string } | { accounts: number }> {
+  const state = randomUUID();
+  services.settings.set(`oauth.state.${state}`, connectionId);
+
+  const redirectMode =
+    services.settings.get("truelayer.redirect_mode") ??
+    services.config.truelayer.redirectMode;
+  const redirectUri =
+    redirectMode === "direct"
+      ? `${services.config.baseUrl}/oauth/truelayer/callback`
+      : "https://console.truelayer.com/redirect-page";
+
+  const authUrl = await provider.createAuthUrl({
+    state,
+    redirectUri,
+    connectionType,
+  });
+
+  if (provider.name === "demo") {
+    const tokens = await provider.exchangeAuthCode({
+      code: "demo-code",
+      redirectUri,
+    });
+    return {
+      accounts: await finaliseConnection(
+        services,
+        provider,
+        connectionId,
+        tokens,
+      ),
+    };
+  }
+
+  return {
+    page: connectPage({
+      connectionId,
+      authUrl,
+      redirectMode: redirectMode === "direct" ? "direct" : "manual",
+    }),
+  };
 }

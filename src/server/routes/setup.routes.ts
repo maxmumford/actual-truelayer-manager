@@ -1,11 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type { Services } from "../../services.js";
-import { finaliseConnection } from "../connectionFlow.js";
+import { beginAuthorisation, finaliseConnection } from "../connectionFlow.js";
 import { parseRedirectUrl } from "../../providers/truelayer/auth.js";
 import { bodyStr, readFlash, withFlash } from "../flash.js";
 import { setupPage, type SetupViewModel } from "../views/setup.js";
-import { connectPage } from "../views/connect.js";
 
 function buildSetupModel(services: Services): Omit<SetupViewModel, "flash"> {
   const actualConfig = services.actualRepo.get();
@@ -148,9 +147,8 @@ export async function setupRoutes(
         : "bank_account";
 
     const provider = services.getProvider();
-    const isDemo = provider.name === "demo";
 
-    if (!isDemo && !services.hasDurableKey) {
+    if (provider.name !== "demo" && !services.hasDurableKey) {
       return reply.redirect(
         withFlash(
           "/setup",
@@ -169,52 +167,22 @@ export async function setupRoutes(
       status: "setup_pending",
     });
 
-    const state = randomUUID();
-    services.settings.set(`oauth.state.${state}`, connectionId);
-
-    const redirectMode =
-      services.settings.get("truelayer.redirect_mode") ??
-      services.config.truelayer.redirectMode;
-    const redirectUri =
-      redirectMode === "direct"
-        ? `${services.config.baseUrl}/oauth/truelayer/callback`
-        : "https://console.truelayer.com/redirect-page";
-
-    const authUrl = await provider.createAuthUrl({
-      state,
-      redirectUri,
+    const started = await beginAuthorisation(
+      services,
+      provider,
+      connectionId,
       connectionType,
-    });
-
-    if (isDemo) {
-      const tokens = await provider.exchangeAuthCode({
-        code: "demo-code",
-        redirectUri,
-      });
-      const count = await finaliseConnection(
-        services,
-        provider,
-        connectionId,
-        tokens,
-      );
+    );
+    if ("accounts" in started) {
       return reply.redirect(
         withFlash(
           "/mappings",
           "ok",
-          `Connected "${displayName}" with ${count} accounts. Now map them.`,
+          `Connected "${displayName}" with ${started.accounts} accounts. Now map them.`,
         ),
       );
     }
-
-    return reply
-      .type("text/html")
-      .send(
-        connectPage({
-          connectionId,
-          authUrl,
-          redirectMode: redirectMode === "direct" ? "direct" : "manual",
-        }),
-      );
+    return reply.type("text/html").send(started.page);
   });
 
   app.post("/oauth/exchange", async (request, reply) => {

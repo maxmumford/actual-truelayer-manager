@@ -29,7 +29,7 @@ export async function dashboardRoutes(
     for (const c of connections) {
       if (c.status === "reauth_required") {
         warnings.push(
-          `"${c.display_name}" needs re-authentication. Use "Reconnect bank" on the Connections page.`,
+          `"${c.display_name}" needs re-authentication. Use "Re-authorise with bank" on the Connections page.`,
         );
         continue;
       }

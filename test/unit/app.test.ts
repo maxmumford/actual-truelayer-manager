@@ -137,3 +137,51 @@ describe("HTTP Basic Auth", () => {
     expect(response.statusCode).toBe(401);
   });
 });
+
+describe("Re-authorising a connection", () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atm-reauth-"));
+    app = await buildApp({
+      config: loadConfig({ DEMO_MODE: "1", APP_DATA_DIR: dir, APP_DB_PATH: ":memory:" }),
+    });
+    await app.ready();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  // A refused refresh token can only be fixed by a new bank login, and that
+  // login must land on the SAME connection: a fresh "Add connection" would
+  // orphan the account mappings and leave the old connection red.
+  it("re-runs the bank login against the existing connection", async () => {
+    await app.inject({
+      method: "POST",
+      url: "/connections/add",
+      payload: { display_name: "Demo Bank", connection_type: "bank_account" },
+    });
+    const [before] = (await app.inject({ method: "GET", url: "/status" })).json()
+      .connections;
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/connections/${before.id}/reauthorise`,
+    });
+    expect(response.statusCode).toBe(302);
+    expect(response.headers.location).toContain("/connections");
+    expect(response.headers.location).toContain("Re-authorised");
+
+    const after = (await app.inject({ method: "GET", url: "/status" })).json()
+      .connections;
+    expect(after).toHaveLength(1);
+    expect(after[0]).toMatchObject({ id: before.id, status: "active" });
+  });
+
+  it("offers the bank login on the Connections page", async () => {
+    const page = await app.inject({ method: "GET", url: "/connections" });
+    expect(page.body).toContain("/reauthorise");
+    expect(page.body).toContain("Re-authorise with bank");
+  });
+});
