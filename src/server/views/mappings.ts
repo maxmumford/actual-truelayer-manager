@@ -31,13 +31,19 @@ export function mappingsPage(vm: MappingsViewModel): string {
             `<option value="${escapeHtml(aa.id)}"${current?.actual_account_id === aa.id ? " selected" : ""}>${escapeHtml(aa.name)}</option>`,
         )
         .join("");
+      // An unmapped row must start on a placeholder, never on a real account:
+      // defaulting to the first account alphabetically meant one click on
+      // "Map" filed a bank account into whatever happened to sort first.
+      const placeholder = current
+        ? ""
+        : `<option value="" selected disabled>Choose an Actual account…</option>`;
       return `<tr>
         <td>${escapeHtml(pa.display_name)}<br><span class="muted">${escapeHtml(pa.account_type)}</span></td>
         <td>
           <form method="post" action="/mappings" class="row" style="align-items:flex-end">
             <input type="hidden" name="connection_id" value="${escapeHtml(pa.connection_id)}" />
             <input type="hidden" name="provider_account_id" value="${escapeHtml(pa.provider_account_id)}" />
-            <select name="actual_account_id" style="min-width:180px">${options}</select>
+            <select name="actual_account_id" style="min-width:180px" required>${placeholder}${options}</select>
             <button type="submit">${current ? "Update" : "Map"}</button>
           </form>
         </td>

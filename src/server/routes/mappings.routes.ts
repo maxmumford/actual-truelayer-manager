@@ -32,19 +32,37 @@ export async function mappingsRoutes(
     const providerAccountId = bodyStr(request.body, "provider_account_id");
     const actualAccountId = bodyStr(request.body, "actual_account_id");
 
-    if (!connectionId || !providerAccountId || !actualAccountId) {
+    if (!connectionId || !providerAccountId) {
       return reply.redirect(
         withFlash("/mappings", "error", "Missing mapping fields."),
+      );
+    }
+    if (!actualAccountId) {
+      return reply.redirect(
+        withFlash(
+          "/mappings",
+          "error",
+          "Choose an Actual account before mapping. Nothing was saved.",
+        ),
       );
     }
 
     let actualName = actualAccountId;
     try {
       const accounts = await services.getActualClient().listAccounts();
-      actualName =
-        accounts.find((a) => a.id === actualAccountId)?.name ?? actualAccountId;
+      const match = accounts.find((a) => a.id === actualAccountId);
+      if (!match) {
+        return reply.redirect(
+          withFlash(
+            "/mappings",
+            "error",
+            "That Actual account no longer exists. Nothing was saved.",
+          ),
+        );
+      }
+      actualName = match.name;
     } catch {
-      // keep id as name fallback
+      // Actual unreachable: keep the id as the name fallback
     }
 
     services.mappings.upsert({
