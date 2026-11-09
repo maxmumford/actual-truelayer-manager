@@ -2,7 +2,7 @@
 
 # Debian (glibc) base so better-sqlite3 uses its prebuilt binaries; build-essential
 # + python3 are present as a fallback in case a source build is needed.
-FROM node:22-bookworm-slim AS build
+FROM node:24-bookworm-slim AS build
 WORKDIR /app
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ \
@@ -13,7 +13,7 @@ COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build && npm prune --omit=dev
 
-FROM node:22-bookworm-slim AS runtime
+FROM node:24-bookworm-slim AS runtime
 ENV NODE_ENV=production
 ENV APP_BIND_HOST=0.0.0.0
 ENV APP_PORT=3020
