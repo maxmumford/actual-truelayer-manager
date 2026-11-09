@@ -4,8 +4,10 @@ import type { AppConfig } from "../config/env.js";
 import type { ConnectionsRepo } from "../db/repositories/connections.repo.js";
 import type { MappingsRepo } from "../db/repositories/mappings.repo.js";
 import type { SyncRunsRepo } from "../db/repositories/syncRuns.repo.js";
+import type { Encryptor } from "../crypto/encrypt.js";
 import type { AccountMappingRow } from "../db/types.js";
 import type {
+  BankTransaction,
   BankingProvider,
   TokenSet,
 } from "../providers/bankingProvider.js";
@@ -34,6 +36,12 @@ export interface SyncRunnerDeps {
   connections: ConnectionsRepo;
   mappings: MappingsRepo;
   syncRuns: SyncRunsRepo;
+  /**
+   * Encrypts the provider's raw transaction payload for storage. Pass it only
+   * when the app has a durable key: without one the payload is not stored at
+   * all, rather than stored in plaintext or under a key that may be lost.
+   */
+  rawEncryptor?: Encryptor | null;
   logger?: { info: (msg: string) => void; warn: (msg: string) => void };
 }
 
@@ -190,6 +198,9 @@ export class SyncRunner {
         )
       ) {
         counts.duplicate += 1;
+        if (!options.dryRun) {
+          this.backfillRaw(provider.name, mapping.provider_account_id, normalised.importedId, tx);
+        }
         this.record(runId, mapping, tx.amountMinor, "duplicate", undefined, tx.bookedDate, normalised.importedId);
         continue;
       }
@@ -219,6 +230,7 @@ export class SyncRunner {
           amountMinor: tx.amountMinor,
           currency: tx.currency,
           syncRunId: runId,
+          rawJsonEncrypted: this.encryptRaw(tx),
         });
         counts.imported += 1;
         this.record(runId, mapping, tx.amountMinor, "imported", undefined, tx.bookedDate, normalised.importedId);
@@ -231,6 +243,40 @@ export class SyncRunner {
     }
 
     return false;
+  }
+
+  /**
+   * Encrypts the provider payload for storage, or returns null when there is
+   * no payload, no durable key, or it cannot be serialised. Storing the raw
+   * copy is diagnostic only, so it must never fail an import, and its content
+   * is never logged.
+   */
+  private encryptRaw(tx: BankTransaction): string | null {
+    const encryptor = this.deps.rawEncryptor;
+    if (!encryptor || tx.raw === undefined) return null;
+    try {
+      const json = JSON.stringify(tx.raw);
+      return json === undefined ? null : encryptor.encrypt(json);
+    } catch {
+      return null;
+    }
+  }
+
+  /** Attaches a raw payload to an already-imported row that has none. */
+  private backfillRaw(
+    provider: string,
+    providerAccountId: string,
+    importedId: string,
+    tx: BankTransaction,
+  ): void {
+    if (!this.deps.rawEncryptor || tx.raw === undefined) return;
+    if (!this.deps.syncRuns.isMissingRaw(provider, providerAccountId, importedId)) {
+      return;
+    }
+    const encrypted = this.encryptRaw(tx);
+    if (encrypted) {
+      this.deps.syncRuns.attachRawIfMissing(provider, providerAccountId, importedId, encrypted);
+    }
   }
 
   /**

@@ -117,6 +117,35 @@ warning — use **Reconnect bank** on the Connections page to re-authorise.
 > **Protect `sync.db` and `APP_ENCRYPTION_KEY`.** Together they can expose banking
 > access tokens and transaction data. A database backup is only as safe as the key.
 
+### What is stored about each transaction
+
+For de-duplication, `imported_transactions` keeps one row per imported transaction:
+provider and account ids, the provider transaction id (the same value Actual shows as
+the transaction's imported id), the Actual account, booked date, amount in minor
+units, currency and the sync run.
+
+It also keeps **the provider's raw transaction payload** (`raw_json_encrypted`), so an
+odd-looking transaction can be investigated later against exactly what the bank sent
+— a missing counterparty name, a surprising description, a pending/booked mix-up.
+That payload is **encrypted at rest with `APP_ENCRYPTION_KEY`** (the same AES-256-GCM
+key that protects the tokens) and is never written to the logs. Without a durable key
+(demo mode's throwaway key included) it is not stored at all — never in plaintext.
+Rows imported before this existed get their payload filled in the next time a sync
+re-fetches them in its overlap window; a stored payload is never overwritten.
+
+Read it back, behind the same Basic Auth as the rest of the UI:
+
+```text
+GET /transactions/raw?provider_transaction_id=<id>        # or ?imported_id=<id>
+GET /transactions/raw?booked_date=2026-11-01&amount_minor=-1250
+```
+
+Any of `provider_transaction_id`/`imported_id`, `provider_account_id`, `booked_date`
+(`YYYY-MM-DD`) and `amount_minor` (pence, negative for spending) can be combined; at
+least one of the first, the date or the amount is required. The JSON response lists
+up to 50 matching rows, each with `raw_status` (`stored`, `not_stored` or
+`undecryptable`) and the decrypted `raw` object.
+
 Dependency security notes (including the `adm-zip` override) live in
 [`SECURITY.md`](./SECURITY.md).
 

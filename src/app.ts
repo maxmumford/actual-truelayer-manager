@@ -17,6 +17,7 @@ import { connectionsRoutes } from "./server/routes/connections.routes.js";
 import { mappingsRoutes } from "./server/routes/mappings.routes.js";
 import { syncRoutes } from "./server/routes/sync.routes.js";
 import { logsRoutes } from "./server/routes/logs.routes.js";
+import { transactionsRoutes } from "./server/routes/transactions.routes.js";
 
 export interface BuildAppOptions {
   logLevel?: string;
@@ -89,6 +90,7 @@ export async function buildApp(
   await app.register(async (instance) => mappingsRoutes(instance, services));
   await app.register(async (instance) => syncRoutes(instance, services));
   await app.register(async (instance) => logsRoutes(instance, services));
+  await app.register(async (instance) => transactionsRoutes(instance, services));
 
   if (ownsServices) {
     app.addHook("onClose", async () => {

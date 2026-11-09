@@ -117,6 +117,14 @@ export class DemoProvider implements BankingProvider {
         amountMinor,
         currency: "GBP",
         merchantName: merchant,
+        raw: {
+          transaction_id: `${input.providerAccountId}-${bookedDate}-${i}`,
+          timestamp: `${bookedDate}T00:00:00Z`,
+          description: `${merchant} purchase`,
+          amount: amountMinor / 100,
+          currency: "GBP",
+          merchant_name: merchant,
+        },
       });
     }
     return txns;

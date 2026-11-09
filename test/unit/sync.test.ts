@@ -328,3 +328,120 @@ describe("SyncRunner token handling", () => {
     db.close();
   });
 });
+
+describe("SyncRunner raw payload storage", () => {
+  const tx: BankTransaction = {
+    providerTransactionId: "tx-raw-1",
+    providerAccountId: "acc-1",
+    bookedDate: "2026-11-01",
+    description: "237 OSR, BN411XR",
+    amountMinor: -1250,
+    currency: "GBP",
+    raw: { transaction_id: "tx-raw-1", meta: { counter_party_name: "Albion" } },
+  };
+
+  function rawSetup(withKey: boolean) {
+    const enc = createEncryptor(randomBytes(32).toString("base64"));
+    const { db, connections } = setupWith(new MockProvider(), undefined);
+    const syncRuns = new SyncRunsRepo(db);
+    const runner = new SyncRunner({
+      config: loadConfig({ DEMO_MODE: "1", APP_DB_PATH: ":memory:" }),
+      provider: new MockProvider({ transactions: [tx] }),
+      actual: new DemoActualClient(),
+      connections,
+      mappings: new MappingsRepo(db),
+      syncRuns,
+      rawEncryptor: withKey ? enc : null,
+    });
+    const stored = () =>
+      (
+        db
+          .prepare(
+            "SELECT raw_json_encrypted FROM imported_transactions WHERE provider_transaction_id = ?",
+          )
+          .get("tx-raw-1") as { raw_json_encrypted: string | null } | undefined
+      )?.raw_json_encrypted;
+    return { db, runner, enc, stored };
+  }
+
+  it("encrypts the payload on import and it round-trips", async () => {
+    const { db, runner, enc, stored } = rawSetup(true);
+    await runner.run({ dryRun: false, mode: "manual" });
+    const ciphertext = stored();
+    expect(ciphertext).toMatch(/^v1:gcm:/);
+    expect(ciphertext).not.toContain("Albion");
+    expect(JSON.parse(enc.decrypt(ciphertext!))).toEqual(tx.raw);
+    db.close();
+  });
+
+  it("stores nothing without a durable key", async () => {
+    const { db, runner, stored } = rawSetup(false);
+    const summary = await runner.run({ dryRun: false, mode: "manual" });
+    expect(summary.imported).toBe(1);
+    expect(stored()).toBeNull();
+    db.close();
+  });
+
+  it("fills in a missing payload on a duplicate without changing dedupe", async () => {
+    const { db, runner, enc, stored } = rawSetup(true);
+    // A row imported before raw storage existed.
+    new SyncRunsRepo(db).recordImported({
+      id: "old",
+      provider: "mock",
+      providerAccountId: "acc-1",
+      providerTransactionId: "tx-raw-1",
+      actualAccountId: "actual-current",
+      bookedDate: "2026-11-01",
+      amountMinor: -1250,
+      currency: "GBP",
+      syncRunId: "earlier",
+    });
+    expect(stored()).toBeNull();
+
+    const dry = await runner.run({ dryRun: true, mode: "dry_run" });
+    expect(dry.duplicate).toBe(1);
+    expect(stored()).toBeNull();
+
+    const live = await runner.run({ dryRun: false, mode: "manual" });
+    expect(live).toMatchObject({ imported: 0, duplicate: 1 });
+    const first = stored();
+    expect(JSON.parse(enc.decrypt(first!))).toEqual(tx.raw);
+
+    // A stored payload is never overwritten.
+    await runner.run({ dryRun: false, mode: "manual" });
+    expect(stored()).toBe(first);
+    db.close();
+  });
+});
+
+describe("raw payload migration", () => {
+  it("upgrades a database that predates it, keeping existing rows", async () => {
+    const { default: Database } = await import("better-sqlite3");
+    const { runMigrations } = await import("../../src/db/index.js");
+    const { MIGRATIONS } = await import("../../src/db/migrations/index.js");
+    const db = new Database(":memory:");
+    db.exec(
+      "CREATE TABLE schema_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, applied_at TEXT NOT NULL)",
+    );
+    db.exec(MIGRATIONS[0]!.sql);
+    db.prepare("INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)").run(
+      MIGRATIONS[0]!.name,
+      new Date().toISOString(),
+    );
+    db.prepare(
+      `INSERT INTO imported_transactions (id, provider, provider_account_id, provider_transaction_id,
+         actual_account_id, booked_date, amount_minor, currency, imported_at, sync_run_id)
+       VALUES ('r1', 'truelayer', 'a', 't', 'x', '2026-01-01', -100, 'GBP', '2026-01-01', 's')`,
+    ).run();
+
+    runMigrations(db);
+    runMigrations(db); // a second pass must be a no-op
+
+    const row = db.prepare("SELECT * FROM imported_transactions WHERE id = 'r1'").get() as Record<
+      string,
+      unknown
+    >;
+    expect(row).toMatchObject({ provider_transaction_id: "t", raw_json_encrypted: null });
+    db.close();
+  });
+});

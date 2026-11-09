@@ -128,6 +128,7 @@ export function buildServices(config: AppConfig): Services {
       connections,
       mappings,
       syncRuns,
+      rawEncryptor: durable ? encryptor : null,
       logger: {
         info: (m) => logs.info(m),
         warn: (m) => logs.warn(m),

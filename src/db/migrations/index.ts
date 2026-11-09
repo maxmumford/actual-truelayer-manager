@@ -123,4 +123,14 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    // The provider's raw transaction payload, encrypted with the app key, so an
+    // odd-looking transaction can be investigated later against exactly what
+    // the bank sent. Nullable: rows imported before this existed, and every
+    // row on an install without a durable key, carry none.
+    name: "002_imported_transactions_raw",
+    sql: `
+      ALTER TABLE imported_transactions ADD COLUMN raw_json_encrypted TEXT;
+    `,
+  },
 ];
