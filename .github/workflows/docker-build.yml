@@ -54,8 +54,9 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          # Multi-arch: amd64 + arm64 (64-bit Raspberry Pi OS) + armv7 (32-bit Pi OS).
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          # Multi-arch: amd64 + arm64 (64-bit Raspberry Pi OS). No armv7: Node 24
+          # publishes no 32-bit ARM images.
+          platforms: linux/amd64,linux/arm64
           # Push on pushes to main / tags; build-only on pull requests.
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}

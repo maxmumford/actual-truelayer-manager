@@ -38,7 +38,7 @@ need Node, npm, or a local image build.
 ghcr.io/avbuse/actual-truelayer-manager:latest
 ```
 
-Supports `linux/amd64`, `linux/arm64`, and `linux/arm/v7` (Raspberry Pi).
+Supports `linux/amd64` and `linux/arm64` (64-bit Raspberry Pi OS).
 
 ### Already running Actual Budget
 
@@ -131,7 +131,6 @@ The image is **multi-arch**:
 
 - `linux/amd64` — x86-64 servers
 - `linux/arm64` — 64-bit Raspberry Pi OS (Pi 3/4/5) and other aarch64 hosts
-- `linux/arm/v7` — 32-bit Raspberry Pi OS (armhf)
 
 Docker pulls the correct architecture automatically — no extra flags on a Pi.
 
